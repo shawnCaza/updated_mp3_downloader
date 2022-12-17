@@ -6,25 +6,21 @@ from aquaui.notification.native_notification import Notification # requires addi
 import os
 from datetime import datetime, timedelta
 import time
-class CiutShowGrab:
-    # This defines the name/save folder for each show
-    show_name_map = {
-            'acrosstheuniverse.mp3': 'Across The Universe',
-            'funkyfridays.mp3': 'Funky Fridays',
-            'moovinintherightdirection.mp3': 'Moovin In The Right Direction',
-            'karibuni.mp3' : 'Karibuni',
-            'radicalreverend.mp3': 'Radical Reverend'
-            }
 
-    root_music_folder = '/Users/scaza/Music/'
-    base_dl_url = 'https://ciut.fm/wp-content/uploads/audio/'
+class Mp3GrabApple:
 
-    def __init__(self, mp3, notify_on_start=True):
+
+
+    def __init__(self,mp3, base_dl_url, root_apple_music_folder, name=None, collection='updated mp3 grab', notify_on_start=True):
         
-        self.notify_on_start = notify_on_start
+        
         self.mp3 = mp3
-        self.show_media_path = f"{self.root_music_folder}Music/Media.localized/CIUT/{self.show_name_map[self.mp3]}/"
-        
+        self.base_dl_url = base_dl_url
+        self.root_music_folder = root_apple_music_folder
+        self.name = name if name is not None else mp3[:-4]
+        self.collection = collection
+        self.show_media_path = f"{self.root_music_folder}Music/Media.localized/{collection}/{name}/"
+        self.notify_on_start = notify_on_start
     
     def full_service_dl(self):
         """full service collection of methods to verify a new mp3 file is available, download it, resample, and move to apple Music."""
@@ -32,12 +28,12 @@ class CiutShowGrab:
         # Create show folder if necessary
         self.create_show_folder()
 
-        # Check last modified date on web site
-        self.last_updt()
+        # Check last modified date of mp3 on web site
+        self.server_last_updt()
 
         if hasattr(self, 'last_updt'):
             
-            self.save_name = f"{self.show_name_map[mp3]} {self.last_updt}.mp3"
+            self.save_name = f"{self.name} {self.last_updt}.mp3"
             
             if self.server_has_new_file():
 
@@ -54,15 +50,9 @@ class CiutShowGrab:
         
     def create_show_folder(self):
         """cretes temporary folder for file if not already present. adds path to self.temp_save_folder"""
-        show_name_map = self.show_name_map
-        base_local_save_folder = self.root_music_folder
-        mp3 = self.mp3
 
-        if mp3 in show_name_map.keys():
-            temp_save_folder = f"{base_local_save_folder}temp/{show_name_map[mp3]}/"
-        else:
-            temp_save_folder = f"{base_local_save_folder}{mp3[:-4]}/"
-
+        temp_save_folder = f"{self.root_music_folder}temp/{self.name}/"
+       
         try:
             os.makedirs(temp_save_folder)
         except FileExistsError:
@@ -86,10 +76,11 @@ class CiutShowGrab:
 
     def server_last_updt(self):
         """Adds last modified time of remote file to self.last_updt"""
+        
         base_dl_url = self.base_dl_url
         mp3 = self.mp3
        
-        # Since CIUT only ever lists one mp3 file, and no information on the page when it was last updated, we need to check last modified header on the file itself to ensure we have a new date reference to add to the DB.
+        # we need to check last modified header on the file itself to ensure we have a new date reference
         try:
             response_header = requests.head(f"{base_dl_url}{mp3}")
             response_header.raise_for_status()
@@ -100,14 +91,14 @@ class CiutShowGrab:
 
         except requests.exceptions.HTTPError as err:
 
-            self.notify('error', f'Could not find {self.mp3} on CIUT. {response_header.status_code} Error.')
+            self.notify('error', f'Could not find {self.mp3}. {response_header.status_code} Error.')
             return False
 
         except Exception as e:
             self.notify('error', 'We encountered trouble accessing {self.mp3}')
             return False
 
-        #  convert last modified header into a 'YYYY-MM-DD' string.
+        #  convert last modified time from header request into a 'YYYY-MM-DD' string.
         last_mod = response_header.headers['last-modified']
         last_mod_dt = datetime.strptime(last_mod.replace(" GMT",""), "%a, %d %b %Y %H:%M:%S")
         last_mod_str = datetime.strftime(last_mod_dt, "%Y-%m-%d")
@@ -116,7 +107,7 @@ class CiutShowGrab:
     def notify(self, type, err='Unknown Error'):
 
         if type == 'start':
-            message = f'CIUT Download Started.'
+            message = f'Download Started.'
             top = f'{self.mp3} is on the way.'
         elif type == 'end':
             message = f'Download complete.'
@@ -128,7 +119,7 @@ class CiutShowGrab:
         notification = (
             Notification(top)
             .with_subtitle(message)
-            .with_identity_image("assets/ciut.jpg")  # the image on the right of the notification
+            .with_identity_image("assets/notification.png")  # the image on the right of the notification
             .send()
         )
 
@@ -150,8 +141,8 @@ class CiutShowGrab:
             
             pydub_file.export(self.temp_save_path, 
                             format="mp3", 
-                            tags = {"artist": "CIUT",
-                                    "album": self.show_name_map[mp3],
+                            tags = {"artist": self.collection,
+                                    "album": self.name,
                                     "title": self.last_updt
                             },
                             parameters=["-q:a", "0"]
@@ -171,18 +162,5 @@ class CiutShowGrab:
                 if datetime.fromtimestamp(old_show_mod) < datetime.now() - timedelta(weeks=outdated_weeks):
                     os.remove(old_show_path)
 
-def main():
-    # These are the mp3s corresponding to shows we want to download
-    mp3_to_download = ['radicalreverend.mp3', 'acrosstheuniverse.mp3', 'funkyfridays.mp3', 'moovinintherightdirection.mp3', 'karibuni.mp3']
-    # mp3_to_download = ['funkyfridays.mp3', 'radicalreverend.mp3']
-    
-    for mp3 in mp3_to_download:
-        print(mp3)
-        grabber = CiutShowGrab(mp3)
-        grabber.full_service_dl()
-        grabber.clean()
-        time.sleep(3)
 
-
-main()
 
